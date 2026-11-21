@@ -259,6 +259,10 @@
         <button id="btn-sound" onclick="toggleSound()" class="btn-doodle bg-gray-100 hover:bg-gray-200 px-3 py-1.5 text-sm" title="Toggle Sound Effects">
           🔊
         </button>
+        <button onclick="openFeedback()" class="btn-doodle bg-sky-100 hover:bg-sky-200 text-gray-900 px-3 sm:px-4 py-1.5 text-xs sm:text-sm flex items-center gap-1.5">
+          <span>💬</span>
+          <span>Feedback</span>
+        </button>
         <button onclick="openRulebook()" class="btn-doodle bg-yellow-300 hover:bg-yellow-400 text-gray-900 px-3 sm:px-4 py-1.5 text-xs sm:text-sm flex items-center gap-1.5">
           <span>📖</span>
           <span>How to Play / Rulebook</span>
@@ -807,6 +811,18 @@
   </main>
 
 
+<!-- ==================== SWITCH BOARDS NEIGHBOR PICKER MODAL ==================== -->
+  <div id="modal-switch-boards" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="whiteboard-card max-w-md w-full p-5 space-y-4 bg-white text-center">
+      <div class="text-4xl">🔄</div>
+      <h3 class="font-display text-xl text-gray-900">Switch Boards! (50% Time)</h3>
+      <p id="switch-boards-modal-desc" class="text-xs text-gray-600">
+        You landed on <strong>Switch Boards</strong>! Choose one of the players sitting next to you to swap whiteboards with:
+      </p>
+      <div id="switch-boards-options" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1"></div>
+    </div>
+  </div>
+
   <!-- ==================== SABOTAGE TARGET PICKER MODAL ==================== -->
   <div id="modal-sabotage" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
     <div class="whiteboard-card max-w-md w-full p-5 space-y-4 bg-white">
@@ -867,10 +883,11 @@
             <div><strong>□ Draw with Square:</strong> Draw using only square shapes.</div>
             <div><strong>⬠ Draw with Pentagon:</strong> Draw using only pentagon shapes.</div>
             <div><strong>✌️ Two Fingers:</strong> Hold marker with two fingers (adds dual-finger wobble jitter!).</div>
-            <div><strong>🤚 Switch Hand:</strong> Draw using your non-dominant hand (e.g., left hand instead of right)!</div>            <div><strong>☝️ Don't Lift Hand:</strong> Draw in one continuous stroke without lifting your marker!</div>
+            <div><strong>🤚 Switch Hand:</strong> Draw using your non-dominant hand (e.g., left hand instead of right)!</div>
+            <div><strong>☝️ Don't Lift Hand:</strong> Draw in one continuous stroke without lifting your marker!</div>
             <div><strong>🚫 Don't Erase:</strong> Eraser and Clear tools are disabled for this round.</div>
             <div><strong>🔀 Switch Places:</strong> Immediately choose another player to swap board positions with.</div>
-            <div><strong>🔄 Switch Boards:</strong> Halfway through the round, swap whiteboards with an adjacent player and finish their drawing!</div>
+            <div><strong>🔄 Switch Boards:</strong> Halfway through the round, whoever landed on this space chooses someone next to them (left or right) to switch whiteboards with!</div>
             <div><strong>🙈 Eyes Closed:</strong> Draw blindfolded — strokes are hidden until time expires!</div>
             <div><strong>💣 Sabotage:</strong> One-time power during the round to scribble over or erase part of another player's drawing!</div>
             <div><strong>🙃 Upside Down:</strong> Draw your picture upside down! Flipped 180° for the Judge.</div>
@@ -879,6 +896,53 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ==================== FEEDBACK MODAL ==================== -->
+  <div id="modal-feedback" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 sm:p-6">
+    <div class="whiteboard-card max-w-lg w-full bg-white overflow-hidden">
+      <div class="bg-sky-200 border-b-3 border-gray-900 px-5 py-3.5 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">💬</span>
+          <h2 class="font-display text-xl sm:text-2xl text-gray-900">Share Feedback</h2>
+        </div>
+        <button type="button" onclick="closeFeedback()" class="btn-doodle bg-white px-3 py-1 text-sm" aria-label="Close feedback">✕ Close</button>
+      </div>
+
+      <form id="feedback-form" class="p-5 space-y-4" onsubmit="submitFeedback(event)">
+        <div>
+          <label for="feedback-category" class="block font-display text-sm text-gray-900 mb-1.5">What is it about?</label>
+          <select id="feedback-category" class="w-full bg-white border-2 border-gray-900 rounded-lg px-3 py-2 text-sm">
+            <option>General</option>
+            <option>Bug or problem</option>
+            <option>Feature idea</option>
+            <option>Game balance</option>
+          </select>
+        </div>
+
+        <fieldset>
+          <legend class="font-display text-sm text-gray-900 mb-1.5">How was your experience?</legend>
+          <div class="grid grid-cols-5 gap-2" role="radiogroup" aria-label="Experience rating">
+            <label class="text-center cursor-pointer"><input class="sr-only peer" type="radio" name="feedback-rating" value="1" /><span class="block border-2 border-gray-900 rounded-lg py-2 peer-checked:bg-rose-300">😞</span></label>
+            <label class="text-center cursor-pointer"><input class="sr-only peer" type="radio" name="feedback-rating" value="2" /><span class="block border-2 border-gray-900 rounded-lg py-2 peer-checked:bg-orange-300">🙁</span></label>
+            <label class="text-center cursor-pointer"><input class="sr-only peer" type="radio" name="feedback-rating" value="3" /><span class="block border-2 border-gray-900 rounded-lg py-2 peer-checked:bg-yellow-300">😐</span></label>
+            <label class="text-center cursor-pointer"><input class="sr-only peer" type="radio" name="feedback-rating" value="4" /><span class="block border-2 border-gray-900 rounded-lg py-2 peer-checked:bg-lime-300">🙂</span></label>
+            <label class="text-center cursor-pointer"><input class="sr-only peer" type="radio" name="feedback-rating" value="5" checked /><span class="block border-2 border-gray-900 rounded-lg py-2 peer-checked:bg-emerald-300">😍</span></label>
+          </div>
+        </fieldset>
+
+        <div>
+          <label for="feedback-message" class="block font-display text-sm text-gray-900 mb-1.5">Tell us more</label>
+          <textarea id="feedback-message" maxlength="1000" required rows="5" placeholder="What did you like? What could be better?"
+            class="w-full resize-y bg-white border-2 border-gray-900 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"></textarea>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-1">
+          <span class="text-xs text-gray-500">Opens your email app</span>
+          <button type="submit" class="btn-doodle bg-emerald-400 hover:bg-emerald-500 px-5 py-2 text-sm">Send Feedback</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1480,6 +1544,8 @@
   clearTimeout(window._pendingBotTopicTimeout);
   clearTimeout(window._botJudgeTimeout);
   clearTimeout(botRollTimeout);
+  clearTimeout(pendingSwitchBoardTimeout);
+closeSwitchBoardsModal();
 
   clientSyncCache.lastPhase = null;
   clientSyncCache.lastTopicJudgeId = null;
@@ -2218,6 +2284,9 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         const attacker = gameState.players.find(p => p.id === playerId);
         if (!attacker || attacker.sabotageUsed || !attacker.localMods.includes('SABOTAGE')) return;
         executeSabotageOnTarget(playerId, action.targetId, action.mode);
+      } else if (action.type === 'choose-switch-board-neighbor') {
+        if (gameState.roomPhase !== 'drawing') return;
+        applyChosenSwitchBoard(playerId, action.targetId);
       } else if (action.type === 'finish-drawing') {
         if (gameState.roomPhase !== 'drawing') return;
         const player = gameState.players.find(p => p.id === playerId);
@@ -2448,6 +2517,11 @@ if (activeRollTimers.inProgress?.playerId === botId) {
             if (localPlayer) saveCurrentHumanToStore(localPlayer);
           }
         }
+      } else if (event.type === 'prompt-switch-boards') {
+        if (event.chooserId === roomState.myPlayerId) {
+          openSwitchBoardsModal({ id: event.chooserId }, event.leftNeighbor, event.rightNeighbor);
+        }
+       
       } else if (event.type === 'board-swap') {
         SFX.swap();
         if (event.message) showToast(event.message);
@@ -4221,13 +4295,14 @@ function skipBotOnlyDrawingTimer() {
       }
     }
 
+    let pendingSwitchBoardTimeout = null;
+
     function executeMidRoundBoardSwaps() {
       const activePlayers = gameState.players.filter(
         (p, idx) => idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE')
       );
       if (activePlayers.length < 2) return;
 
-      // Ensure every active player has an initialized offscreen canvas
       activePlayers.forEach(p => {
         if (!gameState.botCanvases[p.id]) {
           const off = document.createElement('canvas');
@@ -4252,11 +4327,9 @@ function skipBotOnlyDrawingTimer() {
         ctx.drawImage(humanCanvas, 0, 0);
       }
 
-      SFX.swap();
-      let swapMsg = '';
-      const swappedIds = new Set();
-
+      // Case 1: Global Rotate Clockwise overrides and passes everyone CW
       if (gameState.globalMods.includes('ROTATE_CW')) {
+        SFX.swap();
         const snapshots = activePlayers.map(p => {
           const snap = document.createElement('canvas');
           snap.width = 600;
@@ -4265,6 +4338,7 @@ function skipBotOnlyDrawingTimer() {
           return snap;
         });
 
+        const swappedIds = new Set();
         activePlayers.forEach((p, idx) => {
           const prevIdx = (idx - 1 + activePlayers.length) % activePlayers.length;
           const targetCtx = gameState.botCanvases[p.id].getContext('2d');
@@ -4272,32 +4346,144 @@ function skipBotOnlyDrawingTimer() {
           swappedIds.add(p.id);
         });
 
-        swapMsg = '🔁 MID-ROUND GLOBAL ROTATE CLOCKWISE! Everyone passed whiteboards clockwise!';
-        showToast(swapMsg);
-      } else {
-        const swappedPairs = new Set();
-        activePlayers.forEach((p, idx) => {
-          if (p.localMods.includes('SWITCH_BOARDS')) {
-            const adj = activePlayers[(idx + 1) % activePlayers.length];
-            const pairKey = [p.id, adj.id].sort().join('|');
-            if (p.id === adj.id || swappedPairs.has(pairKey)) return;
-            swappedPairs.add(pairKey);
+        finalizeBoardSwapExecution(swappedIds, '🔁 MID-ROUND GLOBAL ROTATE CLOCKWISE! Everyone passed whiteboards clockwise!');
+        return;
+      }
 
-            const tmp = document.createElement('canvas');
-            tmp.width = 600;
-            tmp.height = 420;
-            tmp.getContext('2d').drawImage(gameState.botCanvases[p.id], 0, 0);
+      // Case 2: Local Switch Boards - check if any player landed on it
+      const switchers = activePlayers.filter(p => p.localMods.includes('SWITCH_BOARDS'));
+      if (switchers.length === 0) return;
 
-            gameState.botCanvases[p.id].getContext('2d').drawImage(gameState.botCanvases[adj.id], 0, 0);
-            gameState.botCanvases[adj.id].getContext('2d').drawImage(tmp, 0, 0);
+      // If only 2 active players, there's only 1 neighbor (automatic swap)
+      if (activePlayers.length === 2) {
+        const p1 = activePlayers[0];
+        const p2 = activePlayers[1];
+        performSingleBoardSwap(p1.id, p2.id);
+        finalizeBoardSwapExecution(new Set([p1.id, p2.id]), `🔄 SWITCH BOARDS! ${p1.name} and ${p2.name} swapped whiteboards!`);
+        return;
+      }
 
-            swappedIds.add(p.id);
-            swappedIds.add(adj.id);
-            swapMsg = `🔄 SWITCH BOARDS! ${p.name} swapped whiteboards with ${adj.name}!`;
-            showToast(swapMsg);
-          }
+      // 3+ players: whoever landed on it must choose their left or right neighbor
+      handleSwitchBoardChoices(switchers, activePlayers);
+    }
+
+    function handleSwitchBoardChoices(switchers, activePlayers) {
+      const chooser = switchers[0];
+      const idx = activePlayers.findIndex(p => p.id === chooser.id);
+      const leftNeighbor = activePlayers[(idx + 1) % activePlayers.length];
+      const rightNeighbor = activePlayers[(idx - 1 + activePlayers.length) % activePlayers.length];
+
+      if (chooser.isBot) {
+        // AI bot randomly chooses left or right
+        const chosen = Math.random() < 0.5 ? leftNeighbor : rightNeighbor;
+        performSingleBoardSwap(chooser.id, chosen.id);
+        finalizeBoardSwapExecution(
+          new Set([chooser.id, chosen.id]),
+          `🔄 SWITCH BOARDS! ${chooser.name} chose to swap whiteboards with ${chosen.name}!`
+        );
+        return;
+      }
+
+      // Human chooser: pause timer and open choice modal
+      clearInterval(gameState.timerInterval);
+      clearInterval(gameState.botDrawInterval);
+
+      if (setupState.mode !== 'room' || chooser.id === roomState.myPlayerId) {
+        openSwitchBoardsModal(chooser, leftNeighbor, rightNeighbor);
+      }
+
+      if (setupState.mode === 'room' && roomState.role === 'host') {
+        broadcastRoomEvent({
+          type: 'prompt-switch-boards',
+          chooserId: chooser.id,
+          leftNeighbor: { id: leftNeighbor.id, name: leftNeighbor.name, color: leftNeighbor.color },
+          rightNeighbor: { id: rightNeighbor.id, name: rightNeighbor.name, color: rightNeighbor.color }
         });
       }
+
+      // 12s AFK fallback
+      clearTimeout(pendingSwitchBoardTimeout);
+      pendingSwitchBoardTimeout = setTimeout(() => {
+        closeSwitchBoardsModal();
+        const fallback = Math.random() < 0.5 ? leftNeighbor : rightNeighbor;
+        applyChosenSwitchBoard(chooser.id, fallback.id);
+      }, 12000);
+    }
+
+    function openSwitchBoardsModal(chooser, leftNeighbor, rightNeighbor) {
+      const modal = document.getElementById('modal-switch-boards');
+      const container = document.getElementById('switch-boards-options');
+      if (!modal || !container) return;
+
+      container.innerHTML = `
+        <button type="button" onclick="confirmSwitchBoardNeighbor('${chooser.id}', '${leftNeighbor.id}')"
+          class="btn-doodle bg-yellow-100 hover:bg-yellow-200 p-3 flex flex-col items-center gap-1.5 text-center">
+          <span class="text-xs font-bold text-gray-500 uppercase">👈 To Your Left</span>
+          <div class="flex items-center gap-1.5">
+            <span class="w-3.5 h-3.5 rounded-full border border-gray-900" style="background:${leftNeighbor.color}"></span>
+            <span class="font-display text-base text-gray-900">${escapeHtml(leftNeighbor.name)}</span>
+          </div>
+        </button>
+        <button type="button" onclick="confirmSwitchBoardNeighbor('${chooser.id}', '${rightNeighbor.id}')"
+          class="btn-doodle bg-sky-100 hover:bg-sky-200 p-3 flex flex-col items-center gap-1.5 text-center">
+          <span class="text-xs font-bold text-gray-500 uppercase">👉 To Your Right</span>
+          <div class="flex items-center gap-1.5">
+            <span class="w-3.5 h-3.5 rounded-full border border-gray-900" style="background:${rightNeighbor.color}"></span>
+            <span class="font-display text-base text-gray-900">${escapeHtml(rightNeighbor.name)}</span>
+          </div>
+        </button>
+      `;
+      modal.classList.remove('hidden');
+    }
+
+    function closeSwitchBoardsModal() {
+      document.getElementById('modal-switch-boards')?.classList.add('hidden');
+    }
+
+    function confirmSwitchBoardNeighbor(chooserId, targetId) {
+      clearTimeout(pendingSwitchBoardTimeout);
+      closeSwitchBoardsModal();
+
+      if (setupState.mode === 'room' && roomState.role === 'guest') {
+        sendRoomAction({ type: 'choose-switch-board-neighbor', chooserId, targetId });
+        return;
+      }
+      applyChosenSwitchBoard(chooserId, targetId);
+    }
+
+    function applyChosenSwitchBoard(chooserId, targetId) {
+      closeSwitchBoardsModal();
+      clearTimeout(pendingSwitchBoardTimeout);
+
+      const p1 = gameState.players.find(p => p.id === chooserId);
+      const p2 = gameState.players.find(p => p.id === targetId);
+      if (!p1 || !p2) return;
+
+      performSingleBoardSwap(p1.id, p2.id);
+      finalizeBoardSwapExecution(
+        new Set([p1.id, p2.id]),
+        `🔄 SWITCH BOARDS! ${p1.name} chose to swap whiteboards with ${p2.name}!`
+      );
+    }
+
+    function performSingleBoardSwap(id1, id2) {
+      if (!gameState.botCanvases[id1] || !gameState.botCanvases[id2]) return;
+      const tmp = document.createElement('canvas');
+      tmp.width = 600;
+      tmp.height = 420;
+      tmp.getContext('2d').drawImage(gameState.botCanvases[id1], 0, 0);
+
+      gameState.botCanvases[id1].getContext('2d').drawImage(gameState.botCanvases[id2], 0, 0);
+      gameState.botCanvases[id2].getContext('2d').drawImage(tmp, 0, 0);
+    }
+
+    function finalizeBoardSwapExecution(swappedIds, swapMsg) {
+      SFX.swap();
+      showToast(swapMsg);
+
+      const activePlayers = gameState.players.filter(
+        (p, idx) => idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE')
+      );
 
       const boardsMap = {};
       activePlayers.forEach(p => {
@@ -4313,6 +4499,13 @@ function skipBotOnlyDrawingTimer() {
         }
       });
 
+      const humanCanvas = document.getElementById('human-canvas');
+      const currentHuman = setupState.mode === 'room'
+        ? gameState.players.find((p, idx) => p.id === roomState.myPlayerId && idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE'))
+        : (gameState.activeHumanQueue.length > 0
+            ? gameState.players[gameState.activeHumanQueue[gameState.currentHumanQueueIdx]]
+            : null);
+
       if (currentHuman && swappedIds.has(currentHuman.id)) {
         if (gameState.botCanvases[currentHuman.id] && humanCanvas) {
           const hctx = humanCanvas.getContext('2d');
@@ -4327,7 +4520,23 @@ function skipBotOnlyDrawingTimer() {
           finishBtn.textContent = 'Done Early ✓';
         }
       }
+
       syncVisibleBotCanvases();
+
+      // Resume timer for Part 2 if we were running a timed round
+      if (gameState.roomPhase === 'drawing' && gameState.timerRemaining > 0) {
+        runRoundTimer(gameState.timerRemaining, false, () => {
+          const localIndex = gameState.players.findIndex(p => p.id === roomState.myPlayerId);
+          const localPlayer = gameState.players[localIndex];
+          if (localPlayer && localIndex !== gameState.judgeIndex && !localPlayer.isBot && !localPlayer.localMods.includes('X_SPACE')) {
+            saveCurrentHumanToStore(localPlayer);
+          }
+          clearTimeout(window.roomDrawingFinalizeTimeout);
+          window.roomDrawingFinalizeTimeout = setTimeout(() => {
+            finalizeAllDrawingsAndJudge();
+          }, 1200);
+        });
+      }
 
       if (setupState.mode === 'room' && roomState.role === 'host') {
         broadcastRoomEvent({
@@ -5415,6 +5624,8 @@ if (bot.localMods.includes('DONT_LIFT')) {
       clearTimeout(window._pendingBotTopicTimeout);
       clearTimeout(window._botJudgeTimeout);
       clearTimeout(botRollTimeout);
+      clearTimeout(pendingSwitchBoardTimeout);
+closeSwitchBoardsModal();
 
       clientSyncCache.lastPhase = null;
       clientSyncCache.lastTopicJudgeId = null;
@@ -5501,6 +5712,42 @@ document.getElementById('btn-leave-room-hdr').classList.add('hidden');
 
     function closeRulebook() {
       document.getElementById('modal-rulebook').classList.add('hidden');
+    }
+
+    function openFeedback() {
+      document.getElementById('modal-feedback').classList.remove('hidden');
+      setTimeout(() => document.getElementById('feedback-message').focus(), 50);
+    }
+
+    function closeFeedback() {
+      document.getElementById('modal-feedback').classList.add('hidden');
+    }
+
+    function submitFeedback(event) {
+      event.preventDefault();
+      const message = document.getElementById('feedback-message').value.trim();
+      if (!message) {
+        document.getElementById('feedback-message').focus();
+        return;
+      }
+
+      const ratingInput = document.querySelector('input[name="feedback-rating"]:checked');
+      const category = document.getElementById('feedback-category').value;
+      const rating = ratingInput ? `${ratingInput.value} / 5` : 'Not selected';
+      const subject = `DE DOODLER Feedback: ${category}`;
+      const body = [
+        `Category: ${category}`,
+        `Experience rating: ${rating}`,
+        '',
+        message
+      ].join('\n');
+      const mailtoUrl = `mailto:andyquach.dev@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+      event.currentTarget.reset();
+      document.querySelector('input[name="feedback-rating"][value="5"]').checked = true;
+      closeFeedback();
+      showToast('Opening your email app...');
+      window.location.href = mailtoUrl;
     }
 
     function showToast(message) {

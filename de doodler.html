@@ -682,7 +682,7 @@
                 <!-- SABOTAGE ACTION BAR -->
                 <div id="sabotage-bar" class="hidden bg-red-600 text-white border-2 border-gray-900 rounded-xl p-2.5 flex items-center justify-between gap-2">
                   <div class="text-xs sm:text-sm font-display">
-                    💣 You landed on SABOTAGE! Scribble chaos onto 1 opponent's board!
+                    💣 You landed on SABOTAGE! Draw over OR erase part of 1 opponent's board!
                   </div>
                   <button type="button" onclick="openSabotageModal()" id="btn-use-sabotage" class="btn-doodle bg-yellow-300 text-gray-900 px-3 py-1 text-xs shrink-0">
                     ⚡ Sabotage Now!
@@ -815,7 +815,7 @@
         <button onclick="closeSabotageModal()" class="text-gray-500 hover:text-gray-900 font-bold text-lg">✕</button>
       </div>
       <p class="text-xs text-gray-600">
-        Pick one player's whiteboard to scribble chaotic dry-erase streaks and erase marks onto! (One-time use this round)
+        Pick one player's whiteboard and choose whether to draw over it or erase part of it! (One-time use this round)
       </p>
       <div id="sabotage-targets-list" class="space-y-2"></div>
     </div>
@@ -2213,10 +2213,11 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         }
         confirmTopicAndStartDrawing(true);
       } else if (action.type === 'sabotage') {
+        
         if (gameState.roomPhase !== 'drawing') return;
         const attacker = gameState.players.find(p => p.id === playerId);
         if (!attacker || attacker.sabotageUsed || !attacker.localMods.includes('SABOTAGE')) return;
-        executeSabotageOnTarget(playerId, action.targetId);
+        executeSabotageOnTarget(playerId, action.targetId, action.mode);
       } else if (action.type === 'finish-drawing') {
         if (gameState.roomPhase !== 'drawing') return;
         const player = gameState.players.find(p => p.id === playerId);
@@ -2434,11 +2435,15 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         showToast(event.message);
       } else if (event.type === 'sabotage') {
         SFX.sabotage();
-        showToast(`💣 SABOTAGE! ${event.attackerName} scribbled chaos onto ${event.targetName}'s whiteboard!`);
+        const sabotageMode = event.mode === 'erase' ? 'erase' : 'draw';
+        const actionText = sabotageMode === 'erase'
+          ? `erased part of ${event.targetName}'s whiteboard`
+          : `scribbled over ${event.targetName}'s whiteboard`;
+        showToast(`💣 SABOTAGE! ${event.attackerName} ${actionText}!`);
         if (event.targetId === roomState.myPlayerId) {
           const canvas = document.getElementById('human-canvas');
           if (canvas) {
-            applySabotageScribbles(canvas.getContext('2d'), event.attackerColor);
+            applySabotageScribbles(canvas.getContext('2d'), event.attackerColor, sabotageMode);
             const localPlayer = gameState.players.find(p => p.id === roomState.myPlayerId);
             if (localPlayer) saveCurrentHumanToStore(localPlayer);
           }
@@ -4590,13 +4595,20 @@ function skipBotOnlyDrawingTimer() {
 
       const list = document.getElementById('sabotage-targets-list');
       list.innerHTML = targets.map(t => `
-        <button type="button" onclick="executeSabotageOnTarget('${player.id}', '${t.id}')" class="btn-doodle bg-rose-50 hover:bg-rose-200 w-full px-4 py-2.5 flex items-center justify-between text-left">
+        <div class="whiteboard-card-sm bg-rose-50 p-3 flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <span class="w-4 h-4 rounded-full border border-gray-900" style="background:${t.color}"></span>
             <span class="font-display text-base text-gray-900">${escapeHtml(t.name)}</span>
           </div>
-          <span class="text-xs font-bold text-red-700">💣 Attack Board</span>
-        </button>
+          <div class="flex items-center gap-1.5">
+            <button type="button" onclick="executeSabotageOnTarget('${player.id}', '${t.id}', 'draw')" class="btn-doodle bg-yellow-300 hover:bg-yellow-400 px-2.5 py-1 text-xs">
+              🖊️ Draw Over
+            </button>
+            <button type="button" onclick="executeSabotageOnTarget('${player.id}', '${t.id}', 'erase')" class="btn-doodle bg-white hover:bg-gray-100 px-2.5 py-1 text-xs">
+              🧽 Erase
+            </button>
+          </div>
+        </div>
       `).join('');
 
       document.getElementById('modal-sabotage').classList.remove('hidden');
@@ -4606,8 +4618,9 @@ function skipBotOnlyDrawingTimer() {
       document.getElementById('modal-sabotage').classList.add('hidden');
     }
 
-    function executeSabotageOnTarget(attackerId, targetId) {
+    function executeSabotageOnTarget(attackerId, targetId, mode = 'draw') {
       closeSabotageModal();
+      const sabotageMode = mode === 'erase' ? 'erase' : 'draw';
       const attacker = gameState.players.find(p => p.id === attackerId);
       const target = gameState.players.find(p => p.id === targetId);
       if (!attacker || !target || attacker.sabotageUsed) return;
@@ -4616,7 +4629,7 @@ function skipBotOnlyDrawingTimer() {
         attacker.sabotageUsed = true;
         target.wasSabotaged = true;
         document.getElementById('sabotage-bar').classList.add('hidden');
-        sendRoomAction({ type: 'sabotage', targetId });
+        sendRoomAction({ type: 'sabotage', targetId, mode: sabotageMode });
         return;
       }
 
@@ -4627,18 +4640,21 @@ function skipBotOnlyDrawingTimer() {
       }
 
       SFX.sabotage();
-      showToast(`💣 SABOTAGE! ${attacker.name} scribbled chaos onto ${target.name}'s whiteboard!`);
+      const actionText = sabotageMode === 'erase'
+        ? `erased part of ${target.name}'s whiteboard`
+        : `scribbled over ${target.name}'s whiteboard`;
+      showToast(`💣 SABOTAGE! ${attacker.name} ${actionText}!`);
 
       const targetOffscreen = gameState.botCanvases[target.id];
       if (targetOffscreen) {
-        applySabotageScribbles(targetOffscreen.getContext('2d'), attacker.color);
+        applySabotageScribbles(targetOffscreen.getContext('2d'), attacker.color, sabotageMode);
         target.canvasDataUrl = targetOffscreen.toDataURL('image/png');
       }
 
       const currentHuman = getCurrentActiveHumanPlayer();
       if (currentHuman && currentHuman.id === target.id) {
         const hctx = document.getElementById('human-canvas').getContext('2d');
-        applySabotageScribbles(hctx, attacker.color);
+        applySabotageScribbles(hctx, attacker.color, sabotageMode);
         saveCurrentHumanToStore(currentHuman);
       }
 
@@ -4647,6 +4663,7 @@ function skipBotOnlyDrawingTimer() {
       if (setupState.mode === 'room' && roomState.role === 'host') {
         broadcastRoomEvent({
           type: 'sabotage',
+          mode: sabotageMode,
           attackerId: attacker.id,
           attackerName: attacker.name,
           attackerColor: attacker.color,
@@ -4657,31 +4674,39 @@ function skipBotOnlyDrawingTimer() {
       }
     }
 
-    function applySabotageScribbles(ctx, attackerColor) {
+    function applySabotageScribbles(ctx, attackerColor, mode = 'draw') {
       ctx.save();
-      ctx.strokeStyle = attackerColor || '#ef4444';
-      ctx.lineWidth = 8;
       ctx.lineCap = 'round';
-      ctx.beginPath();
-      let sx = 120 + Math.random() * 120;
-      let sy = 90 + Math.random() * 100;
-      ctx.moveTo(sx, sy);
-      for (let i = 0; i < 9; i++) {
-        sx = 80 + Math.random() * 440;
-        sy = 60 + Math.random() * 300;
-        ctx.lineTo(sx, sy);
-      }
-      ctx.stroke();
+      ctx.lineJoin = 'round';
 
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 22;
-      ctx.beginPath();
-      ctx.moveTo(150, 140 + Math.random() * 120);
-      ctx.lineTo(450, 140 + Math.random() * 120);
-      ctx.stroke();
+      if (mode === 'erase') {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 28;
+        for (let s = 0; s < 2; s++) {
+          ctx.beginPath();
+          const y1 = 100 + Math.random() * 220;
+          const y2 = 100 + Math.random() * 220;
+          ctx.moveTo(110 + Math.random() * 60, y1);
+          ctx.lineTo(430 + Math.random() * 60, y2);
+          ctx.stroke();
+        }
+      } else {
+        ctx.strokeStyle = attackerColor || '#ef4444';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        let sx = 120 + Math.random() * 120;
+        let sy = 90 + Math.random() * 100;
+        ctx.moveTo(sx, sy);
+        for (let i = 0; i < 9; i++) {
+          sx = 80 + Math.random() * 440;
+          sy = 60 + Math.random() * 300;
+          ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+      }
+
       ctx.restore();
     }
-
 
     /* =========================================================================
        12. PROCEDURAL AI BOT DOODLE ENGINE
@@ -4742,7 +4767,8 @@ function skipBotOnlyDrawingTimer() {
         );
         if (targets.length > 0) {
           const chosenTarget = targets[Math.floor(Math.random() * targets.length)];
-          executeSabotageOnTarget(b.id, chosenTarget.id);
+          const chosenMode = Math.random() < 0.5 ? 'draw' : 'erase';
+          executeSabotageOnTarget(b.id, chosenTarget.id, chosenMode);
         }
       });
     }

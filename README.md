@@ -37,6 +37,26 @@ Players on another device must use the host machine's reachable address, for
 example `http://192.168.1.25:3000`, and the host's firewall must allow that
 port.
 
+## Preview and embed
+
+When running locally, open `http://localhost:3000` or add the game to another
+website with an iframe:
+
+```html
+<iframe
+  src="https://your-domain.example/"
+  title="DE DOODLER"
+  width="100%"
+  height="720"
+  loading="lazy"
+  allowfullscreen
+  style="border: 3px solid #111827; border-radius: 16px;"
+></iframe>
+```
+
+Replace `https://your-domain.example/` with the public HTTPS address of your
+DE DOODLER server.
+
 ## Configuration
 
 The server reads these environment variables:

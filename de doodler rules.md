@@ -34,7 +34,7 @@ Players will land on spaces that give ***modifiers***.
 
 ### Modifiers
 
-- ***Global*** modifiers are modifiers players can land on that apply to everyone in the round. Every player in the round has to follow its rule. 
+***Global*** modifiers are modifiers players can land on that apply to everyone in the round. Every player in the round has to follow its rule. 
 
 ***Local*** modifiers are modifiers the player can land on that apply only to the player who lands on it. Only this player has to follow its rule.
 

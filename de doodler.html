@@ -282,10 +282,6 @@
 </button>
 
       </div>
-      <div id="bot-count-controls" class="mt-3 flex items-center justify-between gap-3 bg-purple-50 border-2 border-gray-900 rounded-xl px-3 py-2">
-        <label for="bot-count-input" class="text-sm font-bold text-gray-900">Number of AI Bots</label>
-        <input id="bot-count-input" type="number" min="2" value="3" onchange="setBotCount(this.value)" class="w-20 bg-white border-2 border-gray-900 rounded-lg px-2 py-1 text-center font-bold text-gray-900" />
-      </div>
     </div>
   </header>
 
@@ -350,6 +346,11 @@
                 <span class="mode-check text-lg hidden">✅</span>
               </button>
             </div>
+                  <div id="bot-count-controls" class="mt-3 flex items-center justify-between gap-3 bg-purple-50 border-2 border-gray-900 rounded-xl px-3 py-2">
+        <label for="bot-count-input" class="text-sm font-bold text-gray-900">Number of AI Bots</label>
+        <input id="bot-count-input" type="number" min="2" value="3" onchange="setBotCount(this.value)" class="w-20 bg-white border-2 border-gray-900 rounded-lg px-2 py-1 text-center font-bold text-gray-900" />
+      </div>
+
           </div>
 
           <!-- Quick Rules Summary -->
@@ -1032,7 +1033,7 @@
       { id: 5,  label: 'Two fingers', sub: 'Local', mods: ['TWO_FINGERS'], portalToInner: 3 },
       { id: 6,  label: 'switch hands', sub: 'Local', mods: ['SWITCH_HANDS'] },
       { id: 7,  label: "Don't lift hand", sub: '1 Stroke', mods: ['DONT_LIFT'] },
-      { id: 8,  label: '30s', sub: '+30s Global', mods: ['TIME_PLUS30'], portalToInner: 6 },
+      { id: 8,  label: '+30s', sub: '+30s Global', mods: ['TIME_PLUS30'], portalToInner: 6 },
       { id: 9,  label: 'Rotate CW', sub: '40s', mods: ['ROTATE_CW', 'TIME_40'] },
       { id: 10, label: 'Safe', sub: 'Safe', mods: [] },
       { id: 11, label: "Don't erase", sub: 'Local', mods: ['DONT_ERASE'] },
@@ -1053,7 +1054,7 @@
       { id: 26, label: 'Draw w/ □', sub: 'Square', mods: ['SQUARE'] },
       { id: 27, label: '40s', sub: 'Global', mods: ['TIME_40'] },
       { id: 28, label: "Don't lift hand", sub: '1 Stroke', mods: ['DONT_LIFT'] },
-      { id: 29, label: '30s', sub: '+30s Global', mods: ['TIME_PLUS30'], portalToInner: 23 },
+      { id: 29, label: '+30s', sub: '+30s Global', mods: ['TIME_PLUS30'], portalToInner: 23 },
       { id: 30, label: 'Two fingers', sub: '40s', mods: ['TWO_FINGERS', 'TIME_40'] },
       { id: 31, label: 'Safe', sub: 'Safe', mods: [] },
       { id: 32, label: "Don't erase", sub: 'Local', mods: ['DONT_ERASE'] },
@@ -1212,8 +1213,13 @@
       midRoundHalfPhase: 1,
       timerRemaining: 60,
       timerDeadline: null,
+      isTimerPaused: false,
       timerInterval: null,
       botDrawInterval: null,
+      pendingSwitchBoardQueue: [],
+      pendingSwitchBoardChooserId: null,
+      pendingSwitchSwapMeta: null,
+
       botProgress: {},
       botCanvases: {},
       selectedAwardTag: '😂 Funniest',
@@ -1233,6 +1239,8 @@
       strokeLockedByDontLift: false,
       hasStartedStroke: false,
       submittedEarly: false,
+      isSyncingImage: false,
+
       startX: 0,
       startY: 0,
       lastX: 0,
@@ -1315,11 +1323,17 @@
       document.getElementById('room-lobby').classList.toggle('hidden', mode !== 'room');
       document.getElementById('room-bot-controls').classList.add('hidden');
       document.getElementById('bot-count-controls').classList.toggle('hidden', mode !== 'bots');
+      if (mode === 'bots') {
+        const input = document.getElementById('bot-count-input');
+        const botCount = Math.max(2, Math.min(12, Math.floor(Number(input?.value) || 3)));
+        if (input) input.value = botCount;
+        setupState.count = botCount + 1;
+      }
       initSetupPlayers();
     }
 
     function setBotCount(value) {
-      const botCount = Math.max(2, Math.floor(Number(value) || 2));
+      const botCount = Math.max(2, Math.min(12, Math.floor(Number(value) || 2)));
       setupState.count = botCount + 1;
       document.getElementById('bot-count-input').value = botCount;
       initSetupPlayers();
@@ -1475,6 +1489,7 @@
         }
         setupState.players = setupState.players.filter(p => p.id !== player.id);
         setupState.count = setupState.players.length;
+        document.getElementById('bot-count-input').value = setupState.players.filter(p => p.isBot).length;
         renderSetupPlayers();
         return;
       }
@@ -2160,6 +2175,11 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         gameState.judgeIndex--;
       } else if (wasJudge) {
         gameState.judgeIndex %= gameState.players.length;
+        const newJudge = gameState.players[gameState.judgeIndex];
+        if (newJudge) {
+          newJudge.localMods = [];
+          document.getElementById(`live-opp-card-${newJudge.id}`)?.remove();
+        }
       }
 
       gameState.rollOrder = [];
@@ -2213,6 +2233,17 @@ if (activeRollTimers.inProgress?.playerId === botId) {
           if (!localP || localIdx === gameState.judgeIndex || localP.localMods.includes('X_SPACE')) {
             setupSpectatorOrXSpaceBoard();
           }
+
+              if (gameState.pendingSwitchBoardQueue?.length) {
+            gameState.pendingSwitchBoardQueue = gameState.pendingSwitchBoardQueue.filter(id => id !== botId);
+          }
+          if (gameState.pendingSwitchBoardChooserId === botId) {
+            clearTimeout(pendingSwitchBoardTimeout);
+            closeSwitchBoardsModal();
+            gameState.pendingSwitchBoardChooserId = null;
+            processNextSwitchBoardChooser();
+          }
+
           checkAllRoomDrawersFinished();
         }
       } else if (gameState.roomPhase === 'judging') {
@@ -2375,7 +2406,11 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         gameState.judgeIndex--;
       } else if (wasJudge) {
         gameState.judgeIndex %= gameState.players.length;
-        gameState.players[gameState.judgeIndex].localMods = [];
+        const newJudge = gameState.players[gameState.judgeIndex];
+        if (newJudge) {
+          newJudge.localMods = [];
+          document.getElementById(`live-opp-card-${newJudge.id}`)?.remove();
+        }
       }
 
       if (gameState.pendingSwitchPlacesPlayerId === playerId) {
@@ -2436,6 +2471,17 @@ if (activeRollTimers.inProgress?.playerId === botId) {
           if (!localP || localIdx === gameState.judgeIndex || localP.localMods.includes('X_SPACE')) {
             setupSpectatorOrXSpaceBoard();
           }
+
+          if (gameState.pendingSwitchBoardQueue?.length) {
+        gameState.pendingSwitchBoardQueue = gameState.pendingSwitchBoardQueue.filter(id => id !== playerId);
+      }
+      if (gameState.pendingSwitchBoardChooserId === playerId) {
+        clearTimeout(pendingSwitchBoardTimeout);
+        closeSwitchBoardsModal();
+        gameState.pendingSwitchBoardChooserId = null;
+        processNextSwitchBoardChooser();
+      }
+
           checkAllRoomDrawersFinished();
         }
       } else if (gameState.roomPhase === 'judging') {
@@ -2531,13 +2577,17 @@ if (activeRollTimers.inProgress?.playerId === botId) {
        
       } else if (event.type === 'board-swap') {
         SFX.swap();
+        closeSwitchBoardsModal();
         if (event.message) showToast(event.message);
         const myNewUrl = event.boards?.[roomState.myPlayerId];
         const iWasSwapped = !Array.isArray(event.swappedIds) || event.swappedIds.includes(roomState.myPlayerId);
         if (myNewUrl && iWasSwapped) {
           const canvas = document.getElementById('human-canvas');
           if (canvas) {
-            drawDataUrlToCanvas(canvas, myNewUrl);
+            drawTool.isSyncingImage = true;
+            drawDataUrlToCanvas(canvas, myNewUrl, () => {
+              drawTool.isSyncingImage = false;
+            });
           }
           drawTool.submittedEarly = false;
           drawTool.strokeLockedByDontLift = false;
@@ -3147,6 +3197,13 @@ gameState.timerDeadline = null;
       }
       gameState.rollOrder = order;
       gameState.currentRollerStep = 0;
+
+          gameState.isTimerPaused = false;
+      gameState.pendingSwitchBoardQueue = [];
+      gameState.pendingSwitchBoardChooserId = null;
+      gameState.pendingSwitchSwapMeta = null;
+      window._onRoundTimerComplete = null;
+      window._botDrawStep = 0;
 
       document.getElementById('phase-board-container').classList.remove('hidden');
       document.getElementById('phase-drawing-container').classList.add('hidden');
@@ -4076,7 +4133,7 @@ if (setupState.mode === 'room') {
     }
 
     function saveCurrentHumanToStore(player) {
-      if (!player || player.localMods.includes('X_SPACE')) return;
+      if (!player || player.localMods.includes('X_SPACE') || drawTool.isSyncingImage) return;
       const canvas = document.getElementById('human-canvas');
       if (gameState.botCanvases[player.id]) {
         const octx = gameState.botCanvases[player.id].getContext('2d');
@@ -4091,6 +4148,8 @@ if (setupState.mode === 'room') {
 
     function runRoundTimer(seconds, enableMidRoundSwapAtHalf, onComplete) {
       clearInterval(gameState.timerInterval);
+      window._onRoundTimerComplete = onComplete;
+      gameState.isTimerPaused = false;
       gameState.timerRemaining = seconds;
       gameState.timerDeadline = Date.now() + seconds * 1000;
       const halfPoint = Math.floor(seconds / 2);
@@ -4119,7 +4178,7 @@ if (setupState.mode === 'room') {
 
         if (gameState.timerRemaining <= 0) {
           clearInterval(gameState.timerInterval);
-          onComplete();
+          if (typeof onComplete === 'function') onComplete();
         }
       }, 250);
     }
@@ -4127,6 +4186,15 @@ if (setupState.mode === 'room') {
     function syncGuestDrawingTimer(hostRemaining) {
       if (setupState.mode !== 'room' || roomState.role !== 'guest') return;
       if (typeof hostRemaining !== 'number' || Number.isNaN(hostRemaining)) return;
+
+      if (gameState.isTimerPaused) {
+        clearInterval(window.guestTimerInterval);
+        window.guestTimerInterval = null;
+        gameState.timerRemaining = hostRemaining;
+        clientSyncCache.lastTimerAnchorRemaining = hostRemaining;
+        updateTimerDisplay();
+        return;
+      }
 
       if (clientSyncCache.lastTimerAnchorRemaining !== hostRemaining) {
         clientSyncCache.lastTimerAnchorRemaining = hostRemaining;
@@ -4137,7 +4205,7 @@ if (setupState.mode === 'room') {
 
       if (!window.guestTimerInterval) {
         window.guestTimerInterval = setInterval(() => {
-          if (gameState.roomPhase !== 'drawing') {
+          if (gameState.roomPhase !== 'drawing' || gameState.isTimerPaused) {
             clearInterval(window.guestTimerInterval);
             window.guestTimerInterval = null;
             return;
@@ -4151,53 +4219,55 @@ if (setupState.mode === 'room') {
         }, 250);
       }
     }
+        function checkAllRoomDrawersFinished() {
+      if (setupState.mode !== 'room' || roomState.role !== 'host' || gameState.roomPhase !== 'drawing') return;
+      const activeHumanDrawers = gameState.players.filter((p, idx) =>
+        idx !== gameState.judgeIndex && !p.isBot && !p.localMods.includes('X_SPACE')
+      );
+      if (activeHumanDrawers.length === 0 || !activeHumanDrawers.every(p => p.finishedDrawing)) return;
 
-    function checkAllRoomDrawersFinished() {
-  if (setupState.mode !== 'room' || roomState.role !== 'host' || gameState.roomPhase !== 'drawing') return;
-  const activeHumanDrawers = gameState.players.filter((p, idx) =>
-    idx !== gameState.judgeIndex && !p.isBot && !p.localMods.includes('X_SPACE')
-  );
-  if (activeHumanDrawers.length === 0 || !activeHumanDrawers.every(p => p.finishedDrawing)) return;
+      const hasMidRoundSwap = gameState.globalMods.includes('ROTATE_CW') ||
+        gameState.players.some((p, idx) => idx !== gameState.judgeIndex && p.localMods.includes('SWITCH_BOARDS'));
 
-  const hasMidRoundSwap = gameState.globalMods.includes('ROTATE_CW') ||
-    gameState.players.some((p, idx) => idx !== gameState.judgeIndex && p.localMods.includes('SWITCH_BOARDS'));
+      if (hasMidRoundSwap && !gameState.midRoundSwapTriggered) {
+        gameState.midRoundSwapTriggered = true;
+        advanceBotsBetween(0, 0.5);
+        window._botDrawStep = 14;
+        gameState.timerRemaining = Math.max(5, Math.floor(gameState.roundDuration / 2));
+        gameState.timerDeadline = Date.now() + gameState.timerRemaining * 1000;
+        updateTimerDisplay();
+        executeMidRoundBoardSwaps();
+        if (!gameState.isTimerPaused) resumeBotDrawingEngine();
+        return;
+      }
 
-  // If swap hasn't happened yet, perform the swap and continue Part 2 instead of ending!
-  if (hasMidRoundSwap && !gameState.midRoundSwapTriggered) {
-    gameState.midRoundSwapTriggered = true;
-    advanceBotsBetween(0, 0.5);
-    gameState.timerRemaining = Math.max(5, Math.floor(gameState.roundDuration / 2));
-    gameState.timerDeadline = Date.now() + gameState.timerRemaining * 1000;
-    updateTimerDisplay();
-    executeMidRoundBoardSwaps();
-    return;
-  }
+      clearInterval(gameState.timerInterval);
+      clearInterval(gameState.botDrawInterval);
+      advanceBotsBetween(0, 1);
+      finalizeAllDrawingsAndJudge();
+    }
 
-  clearInterval(gameState.timerInterval);
-  clearInterval(gameState.botDrawInterval);
-  advanceBotsBetween(0, 1);
-  finalizeAllDrawingsAndJudge();
-}
+    function skipBotOnlyDrawingTimer() {
+      if (gameState.roomPhase !== 'drawing') return;
+      const hasActiveHumanDrawers = gameState.players.some(
+        (p, idx) => idx !== gameState.judgeIndex && !p.isBot && !p.localMods.includes('X_SPACE')
+      );
+      if (hasActiveHumanDrawers) return;
 
-function skipBotOnlyDrawingTimer() {
-  if (gameState.roomPhase !== 'drawing') return;
-  const hasActiveHumanDrawers = gameState.players.some(
-    (p, idx) => idx !== gameState.judgeIndex && !p.isBot && !p.localMods.includes('X_SPACE')
-  );
-  if (hasActiveHumanDrawers) return;
+      clearInterval(gameState.timerInterval);
+      clearInterval(gameState.botDrawInterval);
+      gameState.timerRemaining = 0;
+      const hasMidRoundSwap = gameState.globalMods.includes('ROTATE_CW') ||
+        gameState.players.some((p, idx) => idx !== gameState.judgeIndex && p.localMods.includes('SWITCH_BOARDS'));
+      if (hasMidRoundSwap && !gameState.midRoundSwapTriggered) {
+        gameState.midRoundSwapTriggered = true;
+        advanceBotsBetween(0, 0.5);
+        executeMidRoundBoardSwaps();
+      }
+      advanceBotsBetween(0, 1);
+      finalizeAllDrawingsAndJudge();
+    }
 
-  clearInterval(gameState.timerInterval);
-  clearInterval(gameState.botDrawInterval);
-  const hasMidRoundSwap = gameState.globalMods.includes('ROTATE_CW') ||
-    gameState.players.some((p, idx) => idx !== gameState.judgeIndex && p.localMods.includes('SWITCH_BOARDS'));
-  if (hasMidRoundSwap && !gameState.midRoundSwapTriggered) {
-    gameState.midRoundSwapTriggered = true;
-    advanceBotsBetween(0, 0.5);
-    executeMidRoundBoardSwaps();
-  }
-  advanceBotsBetween(0, 1);
-  finalizeAllDrawingsAndJudge();
-}
 
         function finishCurrentHumanTurnEarly() {
           if (setupState.mode === 'room') {
@@ -4249,16 +4319,24 @@ function skipBotOnlyDrawingTimer() {
             activePlayers.some(p => p.localMods.includes('SWITCH_BOARDS'));
 
           if (humanDrawers.length <= 1) {
-            // In single-human bots mode: if swap hasn't happened yet, trigger swap and let player finish Part 2!
             if (humanDrawers.length === 1 && hasMidRoundSwap && !gameState.midRoundSwapTriggered) {
               saveCurrentHumanToStore(humanDrawers[0]);
               gameState.midRoundSwapTriggered = true;
               advanceBotsBetween(0, 0.5);
+              window._botDrawStep = 14;
               gameState.timerRemaining = Math.max(5, Math.floor(gameState.roundDuration / 2));
               gameState.timerDeadline = Date.now() + gameState.timerRemaining * 1000;
               updateTimerDisplay();
               executeMidRoundBoardSwaps();
+              if (!gameState.isTimerPaused) resumeBotDrawingEngine();
               return;
+            }
+
+            if (humanDrawers.length === 0 && hasMidRoundSwap && !gameState.midRoundSwapTriggered) {
+              gameState.timerRemaining = 0;
+              gameState.midRoundSwapTriggered = true;
+              advanceBotsBetween(0, 0.5);
+              executeMidRoundBoardSwaps();
             }
 
             gameState.timerRemaining = 0;
@@ -4304,7 +4382,7 @@ function skipBotOnlyDrawingTimer() {
 
     let pendingSwitchBoardTimeout = null;
 
-    function executeMidRoundBoardSwaps() {
+function executeMidRoundBoardSwaps() {
       const activePlayers = gameState.players.filter(
         (p, idx) => idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE')
       );
@@ -4330,13 +4408,14 @@ function skipBotOnlyDrawingTimer() {
             : null);
 
       if (currentHuman && gameState.botCanvases[currentHuman.id] && humanCanvas) {
-        const ctx = gameState.botCanvases[currentHuman.id].getContext('2d');
-        ctx.drawImage(humanCanvas, 0, 0);
+        gameState.botCanvases[currentHuman.id].getContext('2d').drawImage(humanCanvas, 0, 0);
       }
 
-      // Case 1: Global Rotate Clockwise overrides and passes everyone CW
+      const swappedIds = new Set();
+      const msgs = [];
+
+      // Case 1: Global Rotate Clockwise
       if (gameState.globalMods.includes('ROTATE_CW')) {
-        SFX.swap();
         const snapshots = activePlayers.map(p => {
           const snap = document.createElement('canvas');
           snap.width = 600;
@@ -4345,76 +4424,100 @@ function skipBotOnlyDrawingTimer() {
           return snap;
         });
 
-        const swappedIds = new Set();
         activePlayers.forEach((p, idx) => {
           const prevIdx = (idx - 1 + activePlayers.length) % activePlayers.length;
-          const targetCtx = gameState.botCanvases[p.id].getContext('2d');
-          targetCtx.drawImage(snapshots[prevIdx], 0, 0);
+          gameState.botCanvases[p.id].getContext('2d').drawImage(snapshots[prevIdx], 0, 0);
           swappedIds.add(p.id);
         });
-
-        finalizeBoardSwapExecution(swappedIds, '🔁 MID-ROUND GLOBAL ROTATE CLOCKWISE! Everyone passed whiteboards clockwise!');
-        return;
+        msgs.push('🔁 MID-ROUND GLOBAL ROTATE CLOCKWISE! Everyone passed whiteboards clockwise!');
       }
 
-      // Case 2: Local Switch Boards - check if any player landed on it
+      // Case 2: Local Switch Boards
       const switchers = activePlayers.filter(p => p.localMods.includes('SWITCH_BOARDS'));
-      if (switchers.length === 0) return;
-
-      // If only 2 active players, there's only 1 neighbor (automatic swap)
-      if (activePlayers.length === 2) {
-        const p1 = activePlayers[0];
-        const p2 = activePlayers[1];
-        performSingleBoardSwap(p1.id, p2.id);
-        finalizeBoardSwapExecution(new Set([p1.id, p2.id]), `🔄 SWITCH BOARDS! ${p1.name} and ${p2.name} swapped whiteboards!`);
+      if (switchers.length === 0) {
+        if (swappedIds.size > 0) {
+          finalizeBoardSwapExecution(swappedIds, msgs.join(' '), false);
+        }
         return;
       }
 
-      // 3+ players: whoever landed on it must choose their left or right neighbor
-      handleSwitchBoardChoices(switchers, activePlayers);
+      if (activePlayers.length === 2) {
+        const [p1, p2] = activePlayers;
+        performSingleBoardSwap(p1.id, p2.id);
+        swappedIds.add(p1.id);
+        swappedIds.add(p2.id);
+        msgs.push(`🔄 SWITCH BOARDS! ${p1.name} and ${p2.name} swapped whiteboards!`);
+        finalizeBoardSwapExecution(swappedIds, msgs.join(' '), false);
+        return;
+      }
+
+      gameState.pendingSwitchSwapMeta = { swappedIds, msgs, pausedTimers: false };
+      gameState.pendingSwitchBoardQueue = switchers.map(p => p.id);
+      processNextSwitchBoardChooser();
     }
 
-    function handleSwitchBoardChoices(switchers, activePlayers) {
-      const chooser = switchers[0];
-      const idx = activePlayers.findIndex(p => p.id === chooser.id);
-      const leftNeighbor = activePlayers[(idx + 1) % activePlayers.length];
-      const rightNeighbor = activePlayers[(idx - 1 + activePlayers.length) % activePlayers.length];
+    function processNextSwitchBoardChooser() {
+      const meta = gameState.pendingSwitchSwapMeta || { swappedIds: new Set(), msgs: [], pausedTimers: false };
+      const activePlayers = gameState.players.filter(
+        (p, idx) => idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE')
+      );
 
-      if (chooser.isBot) {
-        // AI bot randomly chooses left or right
-        const chosen = Math.random() < 0.5 ? leftNeighbor : rightNeighbor;
-        performSingleBoardSwap(chooser.id, chosen.id);
-        finalizeBoardSwapExecution(
-          new Set([chooser.id, chosen.id]),
-          `🔄 SWITCH BOARDS! ${chooser.name} chose to swap whiteboards with ${chosen.name}!`
-        );
+      while (gameState.pendingSwitchBoardQueue.length > 0) {
+        const chooserId = gameState.pendingSwitchBoardQueue.shift();
+        const idx = activePlayers.findIndex(p => p.id === chooserId);
+        if (idx === -1 || activePlayers.length < 2) continue;
+
+        const chooser = activePlayers[idx];
+        const leftNeighbor = activePlayers[(idx + 1) % activePlayers.length];
+        const rightNeighbor = activePlayers[(idx - 1 + activePlayers.length) % activePlayers.length];
+
+        if (chooser.isBot) {
+          const chosen = Math.random() < 0.5 ? leftNeighbor : rightNeighbor;
+          performSingleBoardSwap(chooser.id, chosen.id);
+          meta.swappedIds.add(chooser.id);
+          meta.swappedIds.add(chosen.id);
+          meta.msgs.push(`🔄 SWITCH BOARDS! ${chooser.name} chose to swap whiteboards with ${chosen.name}!`);
+          continue;
+        }
+
+        // Human chooser: pause timers until choice is made
+        if (!meta.pausedTimers) {
+          meta.pausedTimers = true;
+          gameState.isTimerPaused = true;
+          clearInterval(gameState.timerInterval);
+          clearInterval(gameState.botDrawInterval);
+          if (setupState.mode === 'room' && roomState.role === 'host') {
+            broadcastRoomGameState();
+          }
+        }
+
+        gameState.pendingSwitchBoardChooserId = chooser.id;
+
+        if (setupState.mode !== 'room' || chooser.id === roomState.myPlayerId) {
+          openSwitchBoardsModal(chooser, leftNeighbor, rightNeighbor);
+        }
+
+        if (setupState.mode === 'room' && roomState.role === 'host') {
+          broadcastRoomEvent({
+            type: 'prompt-switch-boards',
+            chooserId: chooser.id,
+            leftNeighbor: { id: leftNeighbor.id, name: leftNeighbor.name, color: leftNeighbor.color },
+            rightNeighbor: { id: rightNeighbor.id, name: rightNeighbor.name, color: rightNeighbor.color }
+          });
+        }
+
+        clearTimeout(pendingSwitchBoardTimeout);
+        pendingSwitchBoardTimeout = setTimeout(() => {
+          closeSwitchBoardsModal();
+          const fallback = Math.random() < 0.5 ? leftNeighbor : rightNeighbor;
+          applyChosenSwitchBoard(chooser.id, fallback.id);
+        }, 12000);
         return;
       }
 
-      // Human chooser: pause timer and open choice modal
-      clearInterval(gameState.timerInterval);
-      clearInterval(gameState.botDrawInterval);
-
-      if (setupState.mode !== 'room' || chooser.id === roomState.myPlayerId) {
-        openSwitchBoardsModal(chooser, leftNeighbor, rightNeighbor);
-      }
-
-      if (setupState.mode === 'room' && roomState.role === 'host') {
-        broadcastRoomEvent({
-          type: 'prompt-switch-boards',
-          chooserId: chooser.id,
-          leftNeighbor: { id: leftNeighbor.id, name: leftNeighbor.name, color: leftNeighbor.color },
-          rightNeighbor: { id: rightNeighbor.id, name: rightNeighbor.name, color: rightNeighbor.color }
-        });
-      }
-
-      // 12s AFK fallback
-      clearTimeout(pendingSwitchBoardTimeout);
-      pendingSwitchBoardTimeout = setTimeout(() => {
-        closeSwitchBoardsModal();
-        const fallback = Math.random() < 0.5 ? leftNeighbor : rightNeighbor;
-        applyChosenSwitchBoard(chooser.id, fallback.id);
-      }, 12000);
+      gameState.pendingSwitchBoardChooserId = null;
+      gameState.pendingSwitchSwapMeta = null;
+      finalizeBoardSwapExecution(meta.swappedIds, meta.msgs.join(' '), meta.pausedTimers);
     }
 
     function openSwitchBoardsModal(chooser, leftNeighbor, rightNeighbor) {
@@ -4461,16 +4564,20 @@ function skipBotOnlyDrawingTimer() {
     function applyChosenSwitchBoard(chooserId, targetId) {
       closeSwitchBoardsModal();
       clearTimeout(pendingSwitchBoardTimeout);
+      gameState.pendingSwitchBoardChooserId = null;
 
+      const meta = gameState.pendingSwitchSwapMeta || { swappedIds: new Set(), msgs: [], pausedTimers: true };
       const p1 = gameState.players.find(p => p.id === chooserId);
       const p2 = gameState.players.find(p => p.id === targetId);
-      if (!p1 || !p2) return;
+      if (p1 && p2) {
+        performSingleBoardSwap(p1.id, p2.id);
+        meta.swappedIds.add(p1.id);
+        meta.swappedIds.add(p2.id);
+        meta.msgs.push(`🔄 SWITCH BOARDS! ${p1.name} chose to swap whiteboards with ${p2.name}!`);
+      }
 
-      performSingleBoardSwap(p1.id, p2.id);
-      finalizeBoardSwapExecution(
-        new Set([p1.id, p2.id]),
-        `🔄 SWITCH BOARDS! ${p1.name} chose to swap whiteboards with ${p2.name}!`
-      );
+      gameState.pendingSwitchSwapMeta = meta;
+      processNextSwitchBoardChooser();
     }
 
     function performSingleBoardSwap(id1, id2) {
@@ -4484,9 +4591,9 @@ function skipBotOnlyDrawingTimer() {
       gameState.botCanvases[id2].getContext('2d').drawImage(tmp, 0, 0);
     }
 
-    function finalizeBoardSwapExecution(swappedIds, swapMsg) {
+    function finalizeBoardSwapExecution(swappedIds, swapMsg, resumeTimers = false) {
       SFX.swap();
-      showToast(swapMsg);
+      if (swapMsg) showToast(swapMsg);
 
       const activePlayers = gameState.players.filter(
         (p, idx) => idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE')
@@ -4515,8 +4622,7 @@ function skipBotOnlyDrawingTimer() {
 
       if (currentHuman && swappedIds.has(currentHuman.id)) {
         if (gameState.botCanvases[currentHuman.id] && humanCanvas) {
-          const hctx = humanCanvas.getContext('2d');
-          hctx.drawImage(gameState.botCanvases[currentHuman.id], 0, 0);
+          humanCanvas.getContext('2d').drawImage(gameState.botCanvases[currentHuman.id], 0, 0);
         }
         drawTool.submittedEarly = false;
         drawTool.strokeLockedByDontLift = false;
@@ -4530,19 +4636,9 @@ function skipBotOnlyDrawingTimer() {
 
       syncVisibleBotCanvases();
 
-      // Resume timer for Part 2 if we were running a timed round
-      if (gameState.roomPhase === 'drawing' && gameState.timerRemaining > 0) {
-        runRoundTimer(gameState.timerRemaining, false, () => {
-          const localIndex = gameState.players.findIndex(p => p.id === roomState.myPlayerId);
-          const localPlayer = gameState.players[localIndex];
-          if (localPlayer && localIndex !== gameState.judgeIndex && !localPlayer.isBot && !localPlayer.localMods.includes('X_SPACE')) {
-            saveCurrentHumanToStore(localPlayer);
-          }
-          clearTimeout(window.roomDrawingFinalizeTimeout);
-          window.roomDrawingFinalizeTimeout = setTimeout(() => {
-            finalizeAllDrawingsAndJudge();
-          }, 1200);
-        });
+      if (resumeTimers && gameState.roomPhase === 'drawing' && gameState.timerRemaining > 0) {
+        resumeBotDrawingEngine();
+        runRoundTimer(gameState.timerRemaining, false, window._onRoundTimerComplete);
       }
 
       if (setupState.mode === 'room' && roomState.role === 'host') {
@@ -4570,13 +4666,10 @@ function skipBotOnlyDrawingTimer() {
         let ny = (clientY - rect.top) / rect.height;
 
         const player = getCurrentActiveHumanPlayer();
-        if (player) {
-        
-          if (player.localMods.includes('TWO_FINGERS')) {
-            const t = performance.now() * 0.025;
-            nx += Math.sin(t) * 0.018 + (Math.random() - 0.5) * 0.015;
-            ny += Math.cos(t * 1.3) * 0.018 + (Math.random() - 0.5) * 0.015;
-          }
+        if (player && drawTool.isDrawing && player.localMods.includes('TWO_FINGERS')) {
+          const t = performance.now() * 0.025;
+          nx += Math.sin(t) * 0.018 + (Math.random() - 0.5) * 0.015;
+          ny += Math.cos(t * 1.3) * 0.018 + (Math.random() - 0.5) * 0.015;
         }
 
         return {
@@ -4991,6 +5084,7 @@ function skipBotOnlyDrawingTimer() {
 
     function startBotDrawingEngine(botDrawers, hasMidRoundSwap) {
       clearInterval(gameState.botDrawInterval);
+      window._botDrawStep = 0;
       if (botDrawers.length === 0) return;
 
       const botScripts = {};
@@ -5002,22 +5096,33 @@ function skipBotOnlyDrawingTimer() {
       gameState.players.forEach(p => { p._lastRenderedStrokeIdx = 0; });
 
       if (setupState.mode === 'room' || gameState.activeHumanQueue.length <= 1) {
-        const totalSteps = 28;
-        const stepMs = Math.max(180, Math.floor((gameState.roundDuration * 1000) / totalSteps));
-        let currentStep = 0;
-
-        gameState.botDrawInterval = setInterval(() => {
-          currentStep++;
-          const prevPct = (currentStep - 1) / totalSteps;
-          const nextPct = Math.min(1, currentStep / totalSteps);
-          advanceBotsBetween(prevPct, nextPct);
-
-          if (currentStep >= totalSteps) {
-            clearInterval(gameState.botDrawInterval);
-          }
-        }, stepMs);
+        resumeBotDrawingEngine();
       }
     }
+
+    function resumeBotDrawingEngine() {
+      clearInterval(gameState.botDrawInterval);
+      const hasBots = gameState.players.some((p, idx) => p.isBot && idx !== gameState.judgeIndex && !p.localMods.includes('X_SPACE'));
+      if (!hasBots || gameState.roomPhase !== 'drawing') return;
+
+      const totalSteps = 28;
+      if ((window._botDrawStep || 0) >= totalSteps) return;
+      const remainingSteps = totalSteps - (window._botDrawStep || 0);
+      const remainingMs = Math.max(500, (gameState.timerRemaining || 1) * 1000);
+      const stepMs = Math.max(150, Math.floor(remainingMs / remainingSteps));
+
+      gameState.botDrawInterval = setInterval(() => {
+        window._botDrawStep = (window._botDrawStep || 0) + 1;
+        const prevPct = (window._botDrawStep - 1) / totalSteps;
+        const nextPct = Math.min(1, window._botDrawStep / totalSteps);
+        advanceBotsBetween(prevPct, nextPct);
+
+        if (window._botDrawStep >= totalSteps) {
+          clearInterval(gameState.botDrawInterval);
+        }
+      }, stepMs);
+    }
+
 
     function advanceBotsBetween(startPct, endPct) {
       const scripts = window._currentBotScripts || {};
@@ -5333,6 +5438,7 @@ if (bot.localMods.includes('DONT_LIFT')) {
       clientSyncCache.lastPhase = 'judging';
       clearInterval(gameState.timerInterval);
       clearInterval(gameState.botDrawInterval);
+      advanceBotsBetween(0, 1);
       clearInterval(window.roomDrawLiveSyncInterval);
       clearTimeout(window.roomDrawingFinalizeTimeout);
 

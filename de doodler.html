@@ -1,3 +1,5 @@
+<!-- IGNORE; ONLY USED FOR TESTING! Feel free to modify Concentric Board Data for assigning modifiers. -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -389,7 +391,7 @@
 
           <div id="room-join-controls" class="flex flex-wrap items-center gap-2">
             <button type="button" onclick="createRoom()" class="btn-doodle bg-emerald-400 px-4 py-2 text-sm">＋ Create Room</button>
-            <input id="room-code-input" maxlength="6" placeholder="CODE" class="uppercase w-28 bg-white border-2 border-gray-900 rounded-lg px-3 py-2 font-display text-lg tracking-widest text-center" />
+            <input id="room-code-input" maxlength="12" placeholder="CODE" class="uppercase w-28 bg-white border-2 border-gray-900 rounded-lg px-3 py-2 font-display text-lg tracking-widest text-center" />
             <button type="button" onclick="joinRoom()" class="btn-doodle bg-sky-300 px-4 py-2 text-sm">Join Room</button>
           </div>
           <div id="room-bot-controls" class="hidden">
@@ -845,6 +847,35 @@
     </div>
   </div>
 
+  <!-- ==================== JOIN IN-PROGRESS ROOM MODAL ==================== -->
+  <div id="modal-join-active" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="whiteboard-card max-w-md w-full p-5 space-y-4 bg-white">
+      <div class="flex items-center justify-between">
+        <h3 class="font-display text-xl text-gray-900">🎮 Join In-Progress Game</h3>
+        <button type="button" onclick="cancelJoinActiveRoom()" class="text-gray-500 hover:text-gray-900 font-bold text-lg">✕</button>
+      </div>
+      <p class="text-xs text-gray-600">
+        This room is already playing! Enter your name and choose your marker color to join:
+      </p>
+      <div>
+        <label for="join-active-name" class="block font-display text-sm text-gray-900 mb-1">Your Name</label>
+        <input id="join-active-name" type="text" maxlength="16" placeholder="Enter your name"
+          class="w-full bg-slate-50 border-2 border-gray-900 rounded-xl px-3 py-2 font-display text-base text-gray-900 focus:outline-none focus:bg-yellow-50" />
+      </div>
+      <div>
+        <label class="block font-display text-sm text-gray-900 mb-1.5">Marker Color</label>
+        <div class="flex items-center justify-between gap-2">
+          <div id="join-active-colors" class="flex items-center gap-2 flex-wrap"></div>
+          <input id="join-active-custom-color" type="color" value="#2563eb" onchange="selectJoinActiveColor(this.value)"
+            class="w-8 h-8 p-0 border-2 border-gray-900 rounded cursor-pointer" title="Custom color" />
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button type="button" onclick="cancelJoinActiveRoom()" class="btn-doodle bg-white hover:bg-gray-100 px-4 py-2 text-sm">Cancel</button>
+        <button type="button" onclick="confirmJoinActiveRoom()" class="btn-doodle bg-emerald-400 hover:bg-emerald-500 px-5 py-2 text-sm">Join Game!</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ==================== RULEBOOK MODAL ==================== -->
   <div id="modal-rulebook" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 sm:p-6">
@@ -1065,7 +1096,7 @@
       { id: 37, label: 'Draw w/ △', sub: 'Triangle', mods: ['TRIANGLE'] },
       { id: 38, label: 'Two fingers', sub: '40s', mods: ['TWO_FINGERS', 'TIME_40'] },
       { id: 39, label: 'Safe', sub: 'Portal', mods: [], portalToInner: 31 },
-      { id: 40, label: 'switch hands', sub: 'Local', mods: ['SWITCH_HANDS'] }
+      { id: 40, label: 'switch hands', sub: 'Local', mods: ['SWITCH_HANDS'] }    
     ];
 
     const INNER_TRACK = [
@@ -1189,6 +1220,7 @@
       socket: null,
       lobbySnapshotInterval: null,
       gameSnapshotInterval: null,
+      keepaliveInterval: null,
       myPlayerId: null,
       pendingCreate: false,
       pendingJoinCode: null,
@@ -1537,22 +1569,23 @@
     }
 
     function joinRoom() {
-  const code = document.getElementById('room-code-input').value.trim().toUpperCase();
-  if (code.length !== 6) {
-    showToast('Enter a 6-character room code.');
-    return;
-  }
-  closeRoomChannel();
-  roomState.code = code;
-  roomState.role = 'guest';
-  roomState.peers = [];
-  roomState.bots = [];
-  roomState.myPlayerId = roomState.peerId;
-  roomState.pendingCheckCode = code;
-  openRoomChannel();
-  document.getElementById('room-status').textContent = 'Checking room...';
-  document.getElementById('room-bot-controls').classList.add('hidden');
-}
+      const code = document.getElementById('room-code-input').value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (code.length !== 6) {
+        showToast('Enter a 6-character room code.');
+        return;
+      }
+      document.getElementById('room-code-input').value = code;
+      closeRoomChannel();
+      roomState.code = code;
+      roomState.role = 'guest';
+      roomState.peers = [];
+      roomState.bots = [];
+      roomState.myPlayerId = roomState.peerId;
+      roomState.pendingCheckCode = code;
+      openRoomChannel();
+      document.getElementById('room-status').textContent = 'Checking room...';
+      document.getElementById('room-bot-controls').classList.add('hidden');
+    }
 
     function leaveRoom(silent = false) {
       clearActiveRollTimers();
@@ -1618,11 +1651,19 @@ closeSwitchBoardsModal();
       broadcastRoomLobby();
     }
 
-    function openRoomChannel() {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const socket = new WebSocket(`${protocol}//${location.host}`);
+function openRoomChannel() {
+      const wsUrl = new URL('.', location.href);
+      wsUrl.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(wsUrl.toString());
       roomState.socket = socket;
       roomState.channel = socket;
+
+      clearInterval(roomState.keepaliveInterval);
+      roomState.keepaliveInterval = setInterval(() => {
+        if (roomState.socket === socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 20000);
 
       socket.onopen = () => {
         if (roomState.socket !== socket) return;
@@ -1663,6 +1704,25 @@ closeSwitchBoardsModal();
       socket.onerror = () => {
         if (roomState.socket !== socket) return;
         showToast('Could not connect to the multiplayer server.');
+        document.getElementById('room-status').textContent = 'Connection error. Please try again.';
+      };
+
+      socket.onclose = () => {
+        if (roomState.socket !== socket) return;
+        clearInterval(roomState.keepaliveInterval);
+        clearInterval(roomState.lobbySnapshotInterval);
+        clearInterval(roomState.gameSnapshotInterval);
+        roomState.socket = null;
+        roomState.channel = null;
+        if (roomState.pendingCreate || roomState.pendingCheckCode || roomState.pendingJoinCode || roomState.code) {
+          roomState.pendingCreate = false;
+          roomState.pendingCheckCode = null;
+          roomState.pendingJoinCode = null;
+          document.getElementById('room-status').textContent = 'Disconnected from server. Please try again.';
+          document.getElementById('room-code-box').classList.add('hidden');
+          document.getElementById('room-join-controls').classList.remove('hidden');
+          showToast('Disconnected from multiplayer room.');
+        }
       };
     }
 
@@ -1670,6 +1730,7 @@ closeSwitchBoardsModal();
       roomState.pendingCreate = false;
       roomState.pendingJoinCode = null;
       roomState.pendingCheckCode = null;
+      clearInterval(roomState.keepaliveInterval);
       if (roomState.socket) {
         const sock = roomState.socket;
         roomState.socket = null;
@@ -1838,74 +1899,85 @@ closeSwitchBoardsModal();
       }
     }
 
-    function promptAndJoinRoom(code, isActiveGame) {
-  let playerName = setupState.players[0]?.name || `Guest ${Math.floor(Math.random() * 90) + 10}`;
-  let playerColor = setupState.players[0]?.color || MARKER_COLORS[1].hex;
+    let pendingActiveJoin = { code: '', color: MARKER_COLORS[1].hex };
 
-  // Only show window.prompt when joining an already active game
-  if (isActiveGame) {
-    const enteredName = window.prompt(
-      'This game is already in progress! Enter your name to join:',
-      playerName === 'You' ? '' : playerName
-    );
-    playerName = enteredName?.trim().slice(0, 16);
-    if (!playerName) {
-      closeRoomChannel();
-      document.getElementById('room-status').textContent = 'Join cancelled.';
-      showToast('A player name is required to join.');
-      return;
+    function selectJoinActiveColor(hex) {
+      pendingActiveJoin.color = hex;
+      document.getElementById('join-active-custom-color').value = hex;
+      document.querySelectorAll('.join-active-swatch').forEach(btn => {
+        const active = btn.dataset.color === hex;
+        btn.classList.toggle('ring-2', active);
+        btn.classList.toggle('ring-yellow-400', active);
+        btn.classList.toggle('scale-110', active);
+      });
     }
 
-    let selectedColor = null;
-    while (!selectedColor) {
-      const colorChoice = window.prompt(
-        `Choose your marker color: ${MARKER_COLORS.map(c => c.name).join(', ')}, or enter a custom hex code`,
-        MARKER_COLORS[1].name
-      );
-      if (colorChoice === null) {
-        closeRoomChannel();
-        document.getElementById('room-status').textContent = 'Join cancelled.';
-        showToast('Join cancelled.');
+    function sendJoinRoomRequest(code, playerName, playerColor) {
+      if (setupState.players[0]) {
+        setupState.players[0].name = playerName;
+        setupState.players[0].color = playerColor;
+      }
+      document.getElementById('room-status').textContent = 'Joining room...';
+
+      if (roomState.socket?.readyState === WebSocket.OPEN) {
+        roomState.socket.send(JSON.stringify({
+          type: 'join',
+          code,
+          peer: {
+            id: roomState.peerId,
+            name: playerName,
+            color: playerColor
+          }
+        }));
+      } else {
+        roomState.pendingJoinCode = code;
+        openRoomChannel();
+      }
+    }
+
+    function promptAndJoinRoom(code, isActiveGame) {
+      const playerName = setupState.players[0]?.name || `Guest ${Math.floor(Math.random() * 90) + 10}`;
+      const playerColor = setupState.players[0]?.color || MARKER_COLORS[1].hex;
+
+      if (!isActiveGame) {
+        sendJoinRoomRequest(code, playerName, playerColor);
         return;
       }
-      const match = MARKER_COLORS.find(
-        c => c.name.toLowerCase() === colorChoice.trim().toLowerCase() ||
-             c.hex.toLowerCase() === colorChoice.trim().toLowerCase()
-      );
-      if (match) {
-        selectedColor = match.hex;
-      } else {
-        const raw = colorChoice.trim();
-        let hex = raw.startsWith('#') ? raw : `#${raw}`;
-        if (/^#[0-9a-f]{3}$/i.test(hex)) {
-          hex = '#' + hex.slice(1).split('').map(ch => ch + ch).join('');
-        }
-        if (/^#[0-9a-f]{6}$/i.test(hex)) {
-          selectedColor = hex.toLowerCase();
-        } else {
-          showToast('Enter one of the listed colors or a valid 3 or 6 digit hex code.');
-        }
-      }
+
+      pendingActiveJoin = { code, color: playerColor };
+      const nameInput = document.getElementById('join-active-name');
+      nameInput.value = playerName === 'You' ? '' : playerName;
+
+      document.getElementById('join-active-colors').innerHTML = MARKER_COLORS.map(c => `
+        <button type="button" data-color="${c.hex}" onclick="selectJoinActiveColor('${c.hex}')"
+          class="join-active-swatch w-7 h-7 rounded-full border-2 border-gray-900 cursor-pointer"
+          style="background-color:${c.hex}" title="${c.name}"></button>
+      `).join('');
+      selectJoinActiveColor(playerColor);
+
+      document.getElementById('modal-join-active').classList.remove('hidden');
+      setTimeout(() => nameInput.focus(), 50);
     }
-    playerColor = selectedColor;
-  }
 
-  setupState.players[0].name = playerName;
-  setupState.players[0].color = playerColor;
-  document.getElementById('room-status').textContent = 'Joining room...';
-
-  if (roomState.socket?.readyState === WebSocket.OPEN) {
-    roomState.socket.send(JSON.stringify({
-      type: 'join',
-      code,
-      peer: {
-        id: roomState.peerId,
-        name: playerName,
-        color: playerColor
+    function confirmJoinActiveRoom() {
+      const name = document.getElementById('join-active-name').value.trim().slice(0, 16);
+      if (!name) {
+        showToast('A player name is required to join.');
+        document.getElementById('join-active-name').focus();
+        return;
       }
-    }));
-  }
-}
+      document.getElementById('modal-join-active').classList.add('hidden');
+      sendJoinRoomRequest(pendingActiveJoin.code, name, pendingActiveJoin.color);
+    }
+
+    function cancelJoinActiveRoom() {
+      document.getElementById('modal-join-active').classList.add('hidden');
+      closeRoomChannel();
+      roomState.code = '';
+      roomState.role = null;
+      roomState.myPlayerId = null;
+      document.getElementById('room-status').textContent = 'Join cancelled.';
+    }
 
     function resumeHostedGameAfterMigration() {
       renderMidGameBotManager();

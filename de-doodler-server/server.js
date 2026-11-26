@@ -4,9 +4,19 @@ const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 
 const PORT = Number(process.env.PORT) || 3000;
-const PUBLIC_FILE = process.env.GAME_FILE
-  ? path.resolve(process.env.GAME_FILE)
-  : path.resolve(__dirname, '..', 'de doodler.html');
+
+function resolvePublicFile() {
+  const candidates = [
+    process.env.GAME_FILE ? path.resolve(process.env.GAME_FILE) : null,
+    path.resolve(__dirname, 'de doodler.html'),
+    path.resolve(__dirname, '..', 'de doodler.html'),
+    path.resolve(__dirname, 'public', 'de doodler.html')
+  ].filter(Boolean);
+
+  return candidates.find(filePath => fs.existsSync(filePath)) || candidates[0];
+}
+
+const PUBLIC_FILE = resolvePublicFile();
 const rooms = new Map();
 
 function makeCode() {
@@ -21,7 +31,7 @@ function makeCode() {
 }
 
 function send(ws, message) {
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(message));
   }
 }
@@ -38,6 +48,10 @@ function getLobby(room) {
 
 function sanitizeColor(color, fallback = '#60a5fa') {
   return /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color).toLowerCase() : fallback;
+}
+
+function normalizeCode(code) {
+  return String(code || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 }
 
 function removeClient(ws) {
@@ -85,21 +99,22 @@ function removeClient(ws) {
 }
 
 const server = http.createServer((req, res) => {
-let requestPath;
-try {
-  requestPath = decodeURIComponent((req.url || '/').split('?')[0]);
-} catch {
-  res.writeHead(400, { 'Content-Type': 'text/plain' });
-  res.end('Bad request');
-  return;
-}
+  let requestPath;
+  try {
+    requestPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad request');
+    return;
+  }
+
   if (requestPath === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
     return;
   }
 
-  if (requestPath !== '/' && requestPath !== '/de doodler.html') {
+  if (requestPath !== '/' && requestPath !== '/index.html' && requestPath !== '/de doodler.html') {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');
     return;
@@ -118,16 +133,28 @@ try {
 
 const wss = new WebSocketServer({ server });
 
+wss.on('error', err => {
+  console.error('WebSocket server error:', err);
+});
+
 wss.on('connection', ws => {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('error', () => removeClient(ws));
 
   ws.on('message', raw => {
+    ws.isAlive = true;
+
     let message;
     try {
       message = JSON.parse(raw.toString());
     } catch {
       send(ws, { type: 'error', message: 'Invalid message' });
+      return;
+    }
+
+    if (message.type === 'ping') {
+      send(ws, { type: 'pong' });
       return;
     }
 
@@ -153,20 +180,20 @@ wss.on('connection', ws => {
       return;
     }
 
-if (message.type === 'check-room') {
-  const code = String(message.code || '').toUpperCase();
-  const room = rooms.get(code);
-  if (!room) {
-    send(ws, { type: 'error', message: 'Room not found' });
-    return;
-  }
-  send(ws, { type: 'room-check', code, activeGame: Boolean(room.activeGame) });
-  return;
-}
+    if (message.type === 'check-room') {
+      const code = normalizeCode(message.code);
+      const room = rooms.get(code);
+      if (!room) {
+        send(ws, { type: 'error', message: 'Room not found' });
+        return;
+      }
+      send(ws, { type: 'room-check', code, activeGame: Boolean(room.activeGame) });
+      return;
+    }
 
     if (message.type === 'join') {
       if (ws.roomCode) removeClient(ws);
-      const code = String(message.code || '').toUpperCase();
+      const code = normalizeCode(message.code);
       const room = rooms.get(code);
       if (!room) {
         send(ws, { type: 'error', message: 'Room not found' });

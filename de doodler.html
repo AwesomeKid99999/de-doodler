@@ -1209,6 +1209,8 @@
     };
 
     const MAX_PENDING_ROOM_BYTES = 512 * 1024;
+    const MIN_ROOM_SNAPSHOT_INTERVAL_MS = 200;
+    const ROOM_SNAPSHOT_REFRESH_INTERVAL_MS = 2000;
     const canvasDrawVersions = new WeakMap();
 
     let roomBotSeq = 0;
@@ -1224,6 +1226,8 @@
       lobbySnapshotInterval: null,
       gameSnapshotInterval: null,
       keepaliveInterval: null,
+      lastGameSnapshotPayload: null,
+      lastGameSnapshotAt: 0,
       myPlayerId: null,
       pendingCreate: false,
       pendingJoinCode: null,
@@ -1887,7 +1891,7 @@ function openRoomChannel() {
           if (!document.getElementById('screen-game').classList.contains('hidden')) {
             resumeHostedGameAfterMigration();
             broadcastRoomGameState();
-            roomState.gameSnapshotInterval = setInterval(broadcastRoomGameState, 350);
+            roomState.gameSnapshotInterval = setInterval(broadcastRoomGameState, 500);
           }
         }
       } else if (message.type === 'game-state' && roomState.role === 'guest') {
@@ -2608,19 +2612,31 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         roomState.role !== 'host' ||
         socket.bufferedAmount > MAX_PENDING_ROOM_BYTES
       ) return;
-      const state = JSON.parse(JSON.stringify({
-        ...gameState,
-        pendingSwitchSwapMeta: gameState.pendingSwitchSwapMeta
-          ? {
-              ...gameState.pendingSwitchSwapMeta,
-              swappedIds: Array.from(gameState.pendingSwitchSwapMeta.swappedIds)
-            }
-          : null,
-        botCanvases: {},
-        timerInterval: null,
-        botDrawInterval: null
-      }));
-      socket.send(JSON.stringify({ type: 'game-state', state }));
+      const payload = JSON.stringify({
+        type: 'game-state',
+        state: {
+          ...gameState,
+          pendingSwitchSwapMeta: gameState.pendingSwitchSwapMeta
+            ? {
+                ...gameState.pendingSwitchSwapMeta,
+                swappedIds: Array.from(gameState.pendingSwitchSwapMeta.swappedIds)
+              }
+            : null,
+          botCanvases: {},
+          timerInterval: null,
+          botDrawInterval: null
+        }
+      });
+      const now = Date.now();
+      if (
+        (payload === roomState.lastGameSnapshotPayload &&
+          now - roomState.lastGameSnapshotAt < ROOM_SNAPSHOT_REFRESH_INTERVAL_MS) ||
+        now - roomState.lastGameSnapshotAt < MIN_ROOM_SNAPSHOT_INTERVAL_MS
+      ) return;
+
+      socket.send(payload);
+      roomState.lastGameSnapshotPayload = payload;
+      roomState.lastGameSnapshotAt = now;
     }
 
     function broadcastRoomEvent(event) {
@@ -3256,7 +3272,7 @@ syncGuestDrawingTimer(state.timerRemaining);
       if (setupState.mode === 'room' && roomState.role === 'host') {
         broadcastRoomGameState();
         clearInterval(roomState.gameSnapshotInterval);
-        roomState.gameSnapshotInterval = setInterval(broadcastRoomGameState, 350);
+        roomState.gameSnapshotInterval = setInterval(broadcastRoomGameState, 500);
       }
     }
 

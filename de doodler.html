@@ -1208,6 +1208,9 @@
       players: []
     };
 
+    const MAX_PENDING_ROOM_BYTES = 512 * 1024;
+    const canvasDrawVersions = new WeakMap();
+
     let roomBotSeq = 0;
 
     let roomState = {
@@ -1285,6 +1288,7 @@
       lastJudgingKey: null,
       lastTimerAnchorRemaining: null,
       lastTimerAnchorTime: 0,
+      lastTimerPaused: false,
       lastOpponentDataUrls: {}
     };
 
@@ -2598,14 +2602,25 @@ if (activeRollTimers.inProgress?.playerId === botId) {
     }
 
     function broadcastRoomGameState() {
-      if (roomState.socket?.readyState !== WebSocket.OPEN || roomState.role !== 'host') return;
+      const socket = roomState.socket;
+      if (
+        socket?.readyState !== WebSocket.OPEN ||
+        roomState.role !== 'host' ||
+        socket.bufferedAmount > MAX_PENDING_ROOM_BYTES
+      ) return;
       const state = JSON.parse(JSON.stringify({
         ...gameState,
+        pendingSwitchSwapMeta: gameState.pendingSwitchSwapMeta
+          ? {
+              ...gameState.pendingSwitchSwapMeta,
+              swappedIds: Array.from(gameState.pendingSwitchSwapMeta.swappedIds)
+            }
+          : null,
         botCanvases: {},
         timerInterval: null,
         botDrawInterval: null
       }));
-      roomState.socket.send(JSON.stringify({ type: 'game-state', state }));
+      socket.send(JSON.stringify({ type: 'game-state', state }));
     }
 
     function broadcastRoomEvent(event) {
@@ -2614,8 +2629,13 @@ if (activeRollTimers.inProgress?.playerId === botId) {
     }
 
     function sendRoomAction(action) {
-      if (roomState.socket?.readyState === WebSocket.OPEN && roomState.role === 'guest') {
-        roomState.socket.send(JSON.stringify({
+      const socket = roomState.socket;
+      if (
+        socket?.readyState === WebSocket.OPEN &&
+        roomState.role === 'guest' &&
+        (action?.type !== 'canvas' || socket.bufferedAmount <= MAX_PENDING_ROOM_BYTES)
+      ) {
+        socket.send(JSON.stringify({
           type: 'action',
           action,
           playerId: roomState.myPlayerId
@@ -2675,8 +2695,11 @@ if (activeRollTimers.inProgress?.playerId === botId) {
 
     function drawDataUrlToCanvas(canvas, dataUrl, onLoaded = null) {
       if (!canvas || !dataUrl) return;
+      const version = (canvasDrawVersions.get(canvas) || 0) + 1;
+      canvasDrawVersions.set(canvas, version);
       const img = new Image();
       img.onload = () => {
+        if (canvasDrawVersions.get(canvas) !== version) return;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ffffff';
@@ -2702,7 +2725,16 @@ if (activeRollTimers.inProgress?.playerId === botId) {
       const prevLocalTimer = gameState.timerRemaining;
       Object.keys(state).forEach(key => {
         if (key !== 'botCanvases' && key !== 'timerInterval' && key !== 'botDrawInterval') {
-          gameState[key] = state[key];
+          if (key === 'pendingSwitchSwapMeta' && state[key]) {
+            gameState[key] = {
+              ...state[key],
+              swappedIds: new Set(
+                Array.isArray(state[key].swappedIds) ? state[key].swappedIds : []
+              )
+            };
+          } else {
+            gameState[key] = state[key];
+          }
         }
       });
       clientSyncCache.lastPhase = gameState.roomPhase;
@@ -2810,6 +2842,7 @@ if (previousRoomPhase !== 'drawing') {
   window.guestTimerInterval = null;
   clientSyncCache.lastOpponentDataUrls = {};
   clientSyncCache.lastTimerAnchorRemaining = null;
+  clientSyncCache.lastTimerPaused = false;
   const opponentDrawers = activePlayers.filter(p => p.id !== roomState.myPlayerId);
   renderLiveOpponentsGrid(opponentDrawers);
   setupRoomDrawingView();
@@ -4264,13 +4297,19 @@ if (setupState.mode === 'room') {
         window.guestTimerInterval = null;
         gameState.timerRemaining = hostRemaining;
         clientSyncCache.lastTimerAnchorRemaining = hostRemaining;
+        clientSyncCache.lastTimerAnchorTime = Date.now();
+        clientSyncCache.lastTimerPaused = true;
         updateTimerDisplay();
         return;
       }
 
-      if (clientSyncCache.lastTimerAnchorRemaining !== hostRemaining) {
+      if (
+        clientSyncCache.lastTimerPaused ||
+        clientSyncCache.lastTimerAnchorRemaining !== hostRemaining
+      ) {
         clientSyncCache.lastTimerAnchorRemaining = hostRemaining;
         clientSyncCache.lastTimerAnchorTime = Date.now();
+        clientSyncCache.lastTimerPaused = false;
         gameState.timerRemaining = hostRemaining;
         updateTimerDisplay();
       }

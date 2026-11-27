@@ -42,6 +42,16 @@ function broadcast(room, message, except) {
   }
 }
 
+function broadcastGameState(room, state, except) {
+  const payload = JSON.stringify({ type: 'game-state', state });
+  for (const client of room.clients) {
+    const ws = client.ws;
+    if (ws === except || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 0) continue;
+
+    ws.send(payload);
+  }
+}
+
 function getLobby(room) {
   return room.clients.map(client => client.peer);
 }
@@ -299,7 +309,7 @@ wss.on('connection', ws => {
     if (message.type === 'game-state') {
       if (room.host === ws) {
         room.activeGame = true;
-        broadcast(room, { type: 'game-state', state: message.state }, ws);
+        broadcastGameState(room, message.state, ws);
       }
       return;
     }

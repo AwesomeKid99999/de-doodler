@@ -1005,9 +1005,21 @@
       return audioCtx;
     }
 
+    function unlockAudio() {
+      const ctx = getAudioCtx();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    }
+
+    document.addEventListener('pointerdown', unlockAudio, { passive: true });
+    document.addEventListener('keydown', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+
     function toggleSound() {
       soundEnabled = !soundEnabled;
       document.getElementById('btn-sound').textContent = soundEnabled ? '🔊' : '🔇';
+      if (soundEnabled) unlockAudio();
     }
 
     function playTone(freq, type = 'sine', duration = 0.12, vol = 0.12, delay = 0) {
@@ -1029,28 +1041,45 @@
     }
 
     const SFX = {
-      step: () => playTone(420 + Math.random() * 120, 'triangle', 0.08, 0.09),
+      step: () => playSyncedSfx('step', () => playTone(420 + Math.random() * 120, 'triangle', 0.08, 0.09)),
       dice: () => {
-        for (let i = 0; i < 5; i++) playTone(220 + i * 65, 'square', 0.06, 0.06, i * 0.05);
+        playSyncedSfx('dice', () => {
+          for (let i = 0; i < 5; i++) playTone(220 + i * 65, 'square', 0.06, 0.06, i * 0.05);
+        });
       },
       portal: () => {
-        playTone(300, 'sine', 0.25, 0.14, 0);
-        playTone(620, 'sine', 0.28, 0.14, 0.1);
+        playSyncedSfx('portal', () => {
+          playTone(300, 'sine', 0.25, 0.14, 0);
+          playTone(620, 'sine', 0.28, 0.14, 0.1);
+        });
       },
       swap: () => {
-        playTone(520, 'sawtooth', 0.15, 0.12, 0);
-        playTone(390, 'sawtooth', 0.15, 0.12, 0.12);
-        playTone(660, 'sawtooth', 0.2, 0.12, 0.24);
+        playSyncedSfx('swap', () => {
+          playTone(520, 'sawtooth', 0.15, 0.12, 0);
+          playTone(390, 'sawtooth', 0.15, 0.12, 0.12);
+          playTone(660, 'sawtooth', 0.2, 0.12, 0.24);
+        });
       },
       sabotage: () => {
-        playTone(150, 'sawtooth', 0.35, 0.16, 0);
-        playTone(110, 'square', 0.35, 0.16, 0.08);
+        playSyncedSfx('sabotage', () => {
+          playTone(150, 'sawtooth', 0.35, 0.16, 0);
+          playTone(110, 'square', 0.35, 0.16, 0.08);
+        });
       },
-      tick: () => playTone(880, 'sine', 0.05, 0.06),
+      tick: () => playSyncedSfx('tick', () => playTone(880, 'sine', 0.05, 0.06)),
       win: () => {
-        [523.25, 659.25, 783.99, 1046.5].forEach((f, idx) => playTone(f, 'triangle', 0.22, 0.14, idx * 0.1));
+        playSyncedSfx('win', () => {
+          [523.25, 659.25, 783.99, 1046.5].forEach((f, idx) => playTone(f, 'triangle', 0.22, 0.14, idx * 0.1));
+        });
       }
     };
+
+    function playSyncedSfx(name, playLocal) {
+      playLocal();
+      if (setupState.mode === 'room' && roomState.role === 'host') {
+        broadcastRoomEvent({ type: 'sfx', name });
+      }
+    }
 
 
     /* =========================================================================
@@ -2661,10 +2690,11 @@ if (activeRollTimers.inProgress?.playerId === botId) {
 
     function handleRoomEvent(event) {
       if (!event) return;
-      if (event.type === 'toast' && event.message) {
+      if (event.type === 'sfx') {
+        if (typeof SFX[event.name] === 'function') SFX[event.name]();
+      } else if (event.type === 'toast' && event.message) {
         showToast(event.message);
       } else if (event.type === 'sabotage') {
-        SFX.sabotage();
         const sabotageMode = event.mode === 'erase' ? 'erase' : 'draw';
         const actionText = sabotageMode === 'erase'
           ? `erased part of ${event.targetName}'s whiteboard`
@@ -2684,7 +2714,6 @@ if (activeRollTimers.inProgress?.playerId === botId) {
         }
        
       } else if (event.type === 'board-swap') {
-        SFX.swap();
         closeSwitchBoardsModal();
         if (event.message) showToast(event.message);
         const myNewUrl = event.boards?.[roomState.myPlayerId];
